@@ -76,6 +76,39 @@ class TicketImportServiceTests(TestCase):
         )
         self.assertTrue(Ticket.objects.filter(incident_number="INC-3004", title="Password reset").exists())
 
+    def test_sap_export_headers_are_mapped_without_manual_field_map(self):
+        batch = self.make_batch()
+        csv_data = (
+            "ORGID,COMID,PCODE,INCNO,CHANL,TITLE,STATUS,PRIORITY,CTGRY,"
+            "SUB_CTGRY,REQ_BY,ASN_TO,DUE,createdAt,updatedAt,Cl-Weeks,Cr-Week\\n"
+            "BAGL,BGOI,3000,INCD100060,WebApp,Approval issue,Resolved,Low,"
+            "SAP,SAP-PROJECT,sap@example.com,agent@example.com,GO Live Done,"
+            "2025-06-07T00:00:00,2026-09-07T00:00:00,37,23\\n"
+            "BAGL,BGOI,3000,INCD100061,WebApp,Pending issue,In Progress,Low,"
+            "SAP,SAP-PROJECT,sap@example.com,agent@example.com,On Hold,"
+            "2026-10-01T00:00:00,2026-10-02T00:00:00,1,40\\n"
+        )
+        process_upload(batch=batch, file_obj=self.make_csv(csv_data))
+
+        resolved = Ticket.objects.get(incident_number="INCD100060")
+        self.assertEqual(resolved.status, "RESOLVED")
+        self.assertEqual(resolved.source_status, "Resolved")
+        self.assertEqual(resolved.plant_code, "3000")
+        self.assertEqual(resolved.channel, "WEBAPP")
+        self.assertEqual(resolved.subcategory, "SAP-PROJECT")
+        self.assertEqual(resolved.assignee, "agent@example.com")
+        self.assertEqual(resolved.created_at_source.date().isoformat(), "2025-06-07")
+        self.assertEqual(resolved.source_updated_at.date().isoformat(), "2026-09-07")
+        self.assertEqual(resolved.resolved_at.date().isoformat(), "2026-09-07")
+        self.assertIsNone(resolved.due_at)
+        self.assertEqual(resolved.raw_source_data["DUE"], "GO Live Done")
+
+        open_ticket = Ticket.objects.get(incident_number="INCD100061")
+        self.assertEqual(open_ticket.status, "IN_PROGRESS")
+        self.assertIsNone(open_ticket.resolved_at)
+        self.assertEqual(open_ticket.source_updated_at.date().isoformat(), "2026-10-02")
+        self.assertIsNone(open_ticket.due_at)
+
 
 class UploadApiTests(TestCase):
     def test_upload_endpoint_requires_staff_authentication(self):
