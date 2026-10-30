@@ -74,6 +74,25 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# Allow the local Angular development server to call Django.
+# Override these lists through backend/.env for other environments.
+_default_frontend_origins = (
+    "http://localhost:4200,http://127.0.0.1:4200" if DEBUG else ""
+)
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", _default_frontend_origins).split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CSRF_TRUSTED_ORIGINS", _default_frontend_origins
+    ).split(",")
+    if origin.strip()
+]
+
 ROOT_URLCONF = 'config.urls'
 
 TEMPLATES = [
@@ -84,6 +103,8 @@ TEMPLATES = [
         'OPTIONS': {
             'context_processors': [
                 'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.csrf',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
             ],
