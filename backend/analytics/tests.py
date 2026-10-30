@@ -47,7 +47,7 @@ class DashboardAnalyticsTests(TestCase):
         self.assertEqual(response.data["total_tickets"], 3)
         self.assertEqual(response.data["resolved_tickets"], 2)
         self.assertEqual(response.data["open_backlog"], 2)
-        self.assertEqual(response.data["resolution_rate"], 2 / 3)
+        self.assertEqual(response.data["resolution_rate"], 0.666667)
         self.assertEqual(response.data["average_resolution_days"], 1.25)
         self.assertEqual(response.data["resolved_within_one_day_rate"], 0.5)
 

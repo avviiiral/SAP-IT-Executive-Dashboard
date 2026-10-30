@@ -4,9 +4,7 @@ The reporting window and legacy treatment follow the supplied executive-dashboar
 reference: tickets created before 1 April 2026 are excluded from trend/KPI
 calculations but remain visible in the open backlog.
 """
-from calendar import monthrange
 from datetime import date, datetime, timedelta
-from statistics import median
 
 from django.db.models import Max
 from django.utils import timezone
@@ -152,7 +150,7 @@ def dashboard_summary(params):
          timezone.localtime(t.created_at_source).isocalendar().week)
         for t in operational if t.created_at_source
     }
-    as_of = _as_of_date(qs)
+    as_of = _as_of_date(all_for_comparison)
     oldest_age = max(
         ((as_of - timezone.localtime(t.created_at_source).date()).days
          for t in open_tickets if t.created_at_source),
@@ -280,10 +278,11 @@ def dashboard_breakdowns(params):
 
 
 def dashboard_backlog(params, *, limit=100):
-    qs = filtered_tickets(params).exclude(status=TicketStatus.RESOLVED).select_related()
+    base_qs = filtered_tickets(params)
+    qs = base_qs.exclude(status=TicketStatus.RESOLVED).select_related()
     tickets = list(qs)
-    as_of = _as_of_date(qs)
-    tickets.sort(key=lambda t: t.created_at_source or timezone.make_aware(datetime.min), reverse=False)
+    as_of = _as_of_date(base_qs)
+    tickets.sort(key=lambda t: t.created_at_source.timestamp() if t.created_at_source else float("-inf"))
     rows = []
     for ticket in tickets[:limit]:
         created = timezone.localtime(ticket.created_at_source).date() if ticket.created_at_source else None
@@ -329,7 +328,13 @@ def dashboard_ticket_list(params):
     elif scope == "open":
         qs = qs.exclude(status=TicketStatus.RESOLVED)
     elif scope == "within_one_day":
-        qs = qs.filter(status=TicketStatus.RESOLVED, resolution_days__lte=1)
+        from django.db.models import F, Q
+        qs = qs.filter(status=TicketStatus.RESOLVED).filter(
+            Q(resolution_days__lte=1) |
+            Q(resolution_days__isnull=True, resolved_at__isnull=False,
+              created_at_source__isnull=False,
+              resolved_at__lte=F("created_at_source") + timedelta(days=1))
+        )
     elif scope != "all":
         raise ValidationError({"scope": "Use all, operational, resolved, open or within_one_day."})
 
