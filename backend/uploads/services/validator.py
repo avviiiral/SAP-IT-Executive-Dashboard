@@ -1,20 +1,26 @@
-"""Validate imported records against an explicit header mapping."""
+"""Validate SAP service-desk exports against canonical ticket fields."""
 from .normalization import (
     clean_text, normalize_category, normalize_channel, normalize_status,
     parse_datetime, parse_decimal,
 )
 
+# Exact column names from the SAP incident export supplied for this project.
+# DUE is deliberately not mapped: the source column contains workflow text
+# (for example "GO Live Done") as well as dates, so it is not a reliable due date.
 DEFAULT_FIELD_MAP = {
-    "incident_number": "Incident Number",
-    "title": "Title",
-    "status": "Status",
-    "category": "Category",
-    "subcategory": "Subcategory",
-    "plant_code": "Plant",
-    "channel": "Channel",
-    "assignee": "Assignee",
-    "created_at_source": "Created Date",
-    "resolved_at": "Resolved Date",
+    "incident_number": "INCNO",
+    "title": "TITLE",
+    "status": "STATUS",
+    "category": "CTGRY",
+    "subcategory": "SUB_CTGRY",
+    "plant_code": "PCODE",
+    "channel": "CHANL",
+    "assignee": "ASN_TO",
+    "created_at_source": "createdAt",
+    "source_updated_at": "updatedAt",
+    # updatedAt is the only available closure-time proxy in this export.
+    # It is applied to resolved_at only for tickets whose source status is Resolved.
+    "resolved_at": "updatedAt",
     "resolution_days": "Resolution Days",
     "due_at": "Due Date",
 }
@@ -40,13 +46,29 @@ def validate_row(source, mapping):
     incident = clean_text(source.get(mapping["incident_number"]))
     if not incident:
         raise ValueError("Incident number is required.")
+
     status, source_status = normalize_status(source.get(mapping["status"]))
     category, source_category = normalize_category(source.get(mapping["category"]))
     channel, source_channel = normalize_channel(source.get(mapping["channel"]))
+
     raw = {
         key: (value.isoformat() if hasattr(value, "isoformat") else value)
         for key, value in source.items() if key != "__row_number__"
     }
+
+    created_at = parse_datetime(
+        source.get(mapping["created_at_source"]), "Created date"
+    )
+    source_updated_at = parse_datetime(
+        source.get(mapping["source_updated_at"]), "Source updated date"
+    )
+    # The SAP export has no resolvedAt column. updatedAt is a documented proxy,
+    # and must not be interpreted as a resolution timestamp for open tickets.
+    resolved_at = (
+        parse_datetime(source.get(mapping["resolved_at"]), "Resolution date")
+        if status == "RESOLVED" else None
+    )
+
     return {
         "incident_number": incident,
         "title": clean_text(source.get(mapping["title"])),
@@ -56,9 +78,13 @@ def validate_row(source, mapping):
         "plant_code": clean_text(source.get(mapping["plant_code"])),
         "channel": channel, "source_channel": source_channel,
         "assignee": clean_text(source.get(mapping["assignee"])),
-        "created_at_source": parse_datetime(source.get(mapping["created_at_source"]), "Created date"),
-        "resolved_at": parse_datetime(source.get(mapping["resolved_at"]), "Resolved date"),
-        "resolution_days": parse_decimal(source.get(mapping["resolution_days"]), "Resolution days"),
+        "created_at_source": created_at,
+        "source_updated_at": source_updated_at,
+        "resolved_at": resolved_at,
+        "resolution_days": parse_decimal(
+            source.get(mapping["resolution_days"]), "Resolution days"
+        ),
+        # The supplied DUE field is intentionally not mapped by default.
         "due_at": parse_datetime(source.get(mapping["due_at"]), "Due date"),
         "raw_source_data": raw,
     }
