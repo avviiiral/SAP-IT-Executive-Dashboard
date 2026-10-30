@@ -1,4 +1,4 @@
-export interface DashboardFilters {month?:string;date_from?:string;date_to?:string;plant?:string;category?:string;subcategory?:string;assignee?:string;status?:string;channel?:string;}
+export interface DashboardFilters {month?:string;plant?:string;category?:string;subcategory?:string;assignee?:string;status?:string;channel?:string;}
 export interface DashboardSummary {reporting_start_date:string;as_of_date:string;total_tickets:number;resolved_tickets:number;resolution_rate:number;open_backlog:number;oldest_open_age_days:number;average_resolution_days:number;median_resolution_days:number;resolved_within_one_day_rate:number;average_tickets_per_week:number;weeks_in_reporting_data:number;}
 export interface TrendPoint {month?:string;week_start?:string;tickets:number;resolved?:number;resolution_rate?:number;}
 export interface DashboardTrends {monthly:TrendPoint[];weekly:TrendPoint[];}
