@@ -26,4 +26,4 @@ jobs:
       - name: Check migration state
         run: python manage.py makemigrations --check --dry-run
       - name: Run model tests
-        run: python manage.py test tickets uploads
+        run: python manage.py test tickets uploads analytics
