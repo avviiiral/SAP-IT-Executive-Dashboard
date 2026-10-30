@@ -13,7 +13,7 @@ from .validator import validate_field_map, validate_row
 UPDATE_FIELDS = (
     "title", "status", "source_status", "category", "source_category",
     "subcategory", "plant_code", "channel", "source_channel", "assignee",
-    "created_at_source", "resolved_at", "resolution_days", "due_at", "raw_source_data",
+    "created_at_source", "resolved_at", "source_updated_at", "resolution_days", "due_at", "raw_source_data",
 )
 
 
