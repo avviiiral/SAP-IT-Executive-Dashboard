@@ -25,9 +25,9 @@ Example:
 }
 ```
 
-Supported canonical keys: incident_number, title, status, category, subcategory, plant_code, channel, assignee, created_at_source, resolved_at, resolution_days, due_at.
+Supported canonical keys: incident_number, title, status, category, subcategory, plant_code, channel, assignee, created_at_source, resolved_at, source_updated_at, resolution_days, due_at.
 
-Default headers are illustrative; pass field_map to match the actual report export.
+The default mapping now matches the supplied SAP export headers directly: `INCNO`, `TITLE`, `STATUS`, `CTGRY`, `SUB_CTGRY`, `PCODE`, `CHANL`, `ASN_TO`, `createdAt` and `updatedAt`. `updatedAt` is stored as `source_updated_at` for every ticket and is also used as a **resolution-date proxy for Resolved tickets only** because this export has no dedicated `resolvedAt` column. It is not a verified closure timestamp. `DUE` is retained in raw source data but is not mapped to `due_at`, because the supplied column mixes text such as workflow labels with dates. You can still pass `field_map` to override the defaults.
 
 ## Processing rules
 
