@@ -1,22 +1,17 @@
-"""Convert source values into the canonical ticket model vocabulary."""
-from __future__ import annotations
-
+"""Normalize source values to canonical ticket fields."""
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
 
 from django.utils import timezone
 
 from tickets.models import TicketCategory, TicketChannel, TicketStatus
 
 
-def clean_text(value: Any) -> str:
-    if value is None:
-        return ""
-    return str(value).strip()
+def clean_text(value):
+    return "" if value is None else str(value).strip()
 
 
-def parse_datetime(value: Any, field_label: str) -> datetime | None:
+def parse_datetime(value, label):
     if value in (None, ""):
         return None
     if isinstance(value, datetime):
@@ -26,55 +21,47 @@ def parse_datetime(value: Any, field_label: str) -> datetime | None:
     else:
         text = clean_text(value)
         parsed = None
-        for candidate in (text, text.replace("Z", "+00:00")):
+        for fmt in (None, "%d-%b-%Y", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"):
             try:
-                parsed = datetime.fromisoformat(candidate)
+                parsed = datetime.fromisoformat(text) if fmt is None else datetime.strptime(text, fmt)
                 break
             except ValueError:
                 continue
         if parsed is None:
-            for fmt in ("%d-%b-%Y", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"):
-                try:
-                    parsed = datetime.strptime(text, fmt)
-                    break
-                except ValueError:
-                    continue
-        if parsed is None:
-            raise ValueError(f"{field_label} must be a valid date/time.")
+            raise ValueError(f"{label} must be a valid date/time.")
     if timezone.is_naive(parsed):
         parsed = timezone.make_aware(parsed, timezone.get_current_timezone())
     return parsed
 
 
-def parse_decimal(value: Any, field_label: str) -> Decimal | None:
+def parse_decimal(value, label):
     if value in (None, ""):
         return None
     try:
-        number = Decimal(str(value).replace(",", "").strip())
+        result = Decimal(str(value).replace(",", "").strip())
     except (InvalidOperation, ValueError):
-        raise ValueError(f"{field_label} must be numeric.") from None
-    if number < 0:
-        raise ValueError(f"{field_label} cannot be negative.")
-    return number
+        raise ValueError(f"{label} must be numeric.") from None
+    if result < 0:
+        raise ValueError(f"{label} cannot be negative.")
+    return result
 
 
-def normalize_status(value: Any) -> tuple[str, str]:
+def normalize_status(value):
     source = clean_text(value)
     key = source.casefold().replace("_", " ").replace("-", " ")
-    if key in {"resolved", "closed", "complete", "completed"}:
-        canonical = TicketStatus.RESOLVED
-    elif key in {"in progress", "inprogress", "work in progress", "wip"}:
-        canonical = TicketStatus.IN_PROGRESS
-    elif key in {"on hold", "hold", "pending"}:
-        canonical = TicketStatus.ON_HOLD
-    elif key in {"open", "new", "assigned"}:
-        canonical = TicketStatus.OPEN
-    else:
-        canonical = TicketStatus.UNKNOWN
-    return canonical, source
+    mapping = {
+        "resolved": TicketStatus.RESOLVED, "closed": TicketStatus.RESOLVED,
+        "complete": TicketStatus.RESOLVED, "completed": TicketStatus.RESOLVED,
+        "in progress": TicketStatus.IN_PROGRESS, "inprogress": TicketStatus.IN_PROGRESS,
+        "work in progress": TicketStatus.IN_PROGRESS, "wip": TicketStatus.IN_PROGRESS,
+        "on hold": TicketStatus.ON_HOLD, "hold": TicketStatus.ON_HOLD,
+        "pending": TicketStatus.ON_HOLD, "open": TicketStatus.OPEN,
+        "new": TicketStatus.OPEN, "assigned": TicketStatus.OPEN,
+    }
+    return mapping.get(key, TicketStatus.UNKNOWN), source
 
 
-def normalize_category(value: Any) -> tuple[str, str]:
+def normalize_category(value):
     source = clean_text(value)
     key = source.casefold()
     if key == "it":
@@ -88,7 +75,7 @@ def normalize_category(value: Any) -> tuple[str, str]:
     return canonical, source
 
 
-def normalize_channel(value: Any) -> tuple[str, str]:
+def normalize_channel(value):
     source = clean_text(value)
     key = source.casefold().replace(" ", "")
     if key in {"webapp", "web", "portal"}:

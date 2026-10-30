@@ -7,21 +7,10 @@ class UploadBatchSerializer(serializers.ModelSerializer):
     class Meta:
         model = UploadBatch
         fields = (
-            "id",
-            "original_filename",
-            "upload_type",
-            "status",
-            "uploaded_at",
-            "started_at",
-            "completed_at",
-            "total_rows",
-            "inserted_rows",
-            "updated_rows",
-            "unchanged_rows",
-            "rejected_rows",
-            "snapshot_scope",
-            "error_summary",
-            "metadata",
+            "id", "original_filename", "upload_type", "status", "uploaded_at",
+            "started_at", "completed_at", "total_rows", "inserted_rows",
+            "updated_rows", "unchanged_rows", "rejected_rows", "snapshot_scope",
+            "error_summary", "metadata",
         )
         read_only_fields = fields
 
@@ -33,12 +22,10 @@ class UploadCreateSerializer(serializers.Serializer):
     field_map = serializers.JSONField(required=False)
 
     def validate_file(self, value):
-        name = value.name.lower()
-        if not name.endswith((".csv", ".xlsx", ".xlsm")):
-            raise serializers.ValidationError("Upload a .csv, .xlsx or .xlsm file.")
-        max_size = 20 * 1024 * 1024
-        if value.size > max_size:
-            raise serializers.ValidationError("File exceeds the 20 MB upload limit.")
+        if not value.name.lower().endswith((".csv", ".xlsx", ".xlsm")):
+            raise serializers.ValidationError("Upload a CSV, XLSX or XLSM file.")
+        if value.size > 20 * 1024 * 1024:
+            raise serializers.ValidationError("File exceeds the 20 MB limit.")
         return value
 
     def validate_field_map(self, value):
@@ -49,6 +36,6 @@ class UploadCreateSerializer(serializers.Serializer):
     def validate(self, attrs):
         if attrs["upload_type"] == UploadType.FULL and not attrs.get("snapshot_scope", "").strip():
             raise serializers.ValidationError({
-                "snapshot_scope": "An explicit snapshot scope is required for full reports."
+                "snapshot_scope": "Required for full report uploads."
             })
         return attrs

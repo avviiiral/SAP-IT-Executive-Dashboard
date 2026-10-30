@@ -1,4 +1,4 @@
-"""Read tabular ticket exports without assuming source-system column names."""
+"""Read CSV and Excel ticket exports."""
 from __future__ import annotations
 
 import csv
@@ -9,61 +9,43 @@ from openpyxl import load_workbook
 
 
 class FileReadError(ValueError):
-    """Raised when an uploaded file cannot be read as a supported table."""
-
-
-SUPPORTED_EXTENSIONS = {".csv", ".xlsx", ".xlsm"}
-
-
-def _clean_header(value: Any) -> str:
-    return str(value).strip() if value is not None else ""
+    pass
 
 
 def read_tabular_file(file_obj, filename: str) -> tuple[list[str], list[dict[str, Any]]]:
-    """Return (headers, rows), with source row numbers starting at 2."""
     extension = Path(filename).suffix.lower()
-    if extension not in SUPPORTED_EXTENSIONS:
-        raise FileReadError("Unsupported file type. Upload .csv, .xlsx or .xlsm.")
-
+    if extension not in {".csv", ".xlsx", ".xlsm"}:
+        raise FileReadError("Unsupported file type. Use CSV, XLSX or XLSM.")
     try:
         if extension == ".csv":
-            raw = file_obj.read()
-            if isinstance(raw, bytes):
-                text = raw.decode("utf-8-sig")
-            else:
-                text = raw
-            sample = text[:8192]
+            payload = file_obj.read()
+            text = payload.decode("utf-8-sig") if isinstance(payload, bytes) else payload
             try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=",;\\t|")
+                dialect = csv.Sniffer().sniff(text[:8192], delimiters=",;\t|")
             except csv.Error:
                 dialect = csv.excel
-            reader = csv.reader(text.splitlines(), dialect)
-            matrix = list(reader)
+            matrix = list(csv.reader(text.splitlines(), dialect))
         else:
             workbook = load_workbook(file_obj, read_only=True, data_only=True)
             worksheet = workbook.active
             matrix = list(worksheet.iter_rows(values_only=True))
             workbook.close()
-    except (UnicodeDecodeError, OSError, csv.Error, ValueError) as exc:
+    except (OSError, UnicodeDecodeError, ValueError, csv.Error) as exc:
         raise FileReadError(f"Unable to read uploaded file: {exc}") from exc
-
     if not matrix:
         raise FileReadError("The uploaded file is empty.")
-
-    headers = [_clean_header(value) for value in matrix[0]]
-    if not any(headers):
+    headers = [str(v).strip() if v is not None else "" for v in matrix[0]]
+    nonempty = [h.casefold() for h in headers if h]
+    if not any(nonempty):
         raise FileReadError("The first row must contain column headers.")
-    if len([h.casefold() for h in headers if h]) != len(set(h.casefold() for h in headers if h)):
-        raise FileReadError("The file contains duplicate column headers.")
-
-    rows: list[dict[str, Any]] = []
-    for row_number, values in enumerate(matrix[1:], start=2):
-        values = list(values)
-        if not any(value not in (None, "") for value in values):
+    if len(nonempty) != len(set(nonempty)):
+        raise FileReadError("Duplicate column headers are not allowed.")
+    rows = []
+    for number, raw in enumerate(matrix[1:], start=2):
+        values = list(raw) + [None] * max(0, len(headers) - len(raw))
+        if not any(v not in (None, "") for v in values):
             continue
-        padded = values + [None] * max(0, len(headers) - len(values))
-        rows.append({
-            "__row_number__": row_number,
-            **{header: padded[index] for index, header in enumerate(headers) if header},
-        })
+        rows.append({"__row_number__": number, **{
+            header: values[i] for i, header in enumerate(headers) if header
+        }})
     return headers, rows

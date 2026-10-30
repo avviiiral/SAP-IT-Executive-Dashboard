@@ -1,181 +1,139 @@
-"""Transactional ticket import service with row-level audit history."""
-from __future__ import annotations
-
+"""Transactional ticket import service with row-level audit results."""
 import hashlib
-from datetime import timedelta
-from typing import Any
 
 from django.db import transaction
 from django.utils import timezone
 
 from tickets.models import Ticket
-from uploads.models import ImportRow, RowStatus, UploadBatch, UploadStatus, UploadType
+from uploads.models import ImportRow, RowStatus, UploadStatus, UploadType
 
 from .file_reader import read_tabular_file
 from .validator import validate_field_map, validate_row
 
-
-IMPORTABLE_FIELDS = (
-    "title",
-    "status",
-    "source_status",
-    "category",
-    "source_category",
-    "subcategory",
-    "plant_code",
-    "channel",
-    "source_channel",
-    "assignee",
-    "created_at_source",
-    "resolved_at",
-    "resolution_days",
-    "due_at",
-    "raw_source_data",
+UPDATE_FIELDS = (
+    "title", "status", "source_status", "category", "source_category",
+    "subcategory", "plant_code", "channel", "source_channel", "assignee",
+    "created_at_source", "resolved_at", "resolution_days", "due_at", "raw_source_data",
 )
 
 
 class ImportExecutionError(ValueError):
-    """Raised when a batch cannot be safely processed."""
+    pass
 
 
-def sha256_file(file_obj) -> str:
+def _file_sha256(file_obj):
     digest = hashlib.sha256()
-    position = file_obj.tell() if hasattr(file_obj, "tell") else None
-    for chunk in file_obj.chunks() if hasattr(file_obj, "chunks") else iter(lambda: file_obj.read(1024 * 1024), b""):
-        digest.update(chunk)
-    if position is not None:
-        file_obj.seek(position)
+    original = file_obj.tell() if hasattr(file_obj, "tell") else 0
+    if hasattr(file_obj, "chunks"):
+        for chunk in file_obj.chunks():
+            digest.update(chunk)
+    else:
+        while True:
+            chunk = file_obj.read(1024 * 1024)
+            if not chunk:
+                break
+            digest.update(chunk)
+    if hasattr(file_obj, "seek"):
+        file_obj.seek(original)
     return digest.hexdigest()
 
 
-def _same_values(ticket: Ticket, values: dict[str, Any]) -> bool:
-    return all(getattr(ticket, field) == values[field] for field in IMPORTABLE_FIELDS)
-
-
-def process_upload(
-    *,
-    batch: UploadBatch,
-    file_obj,
-    field_map: dict[str, str] | None = None,
-    snapshot_scope: str = "",
-) -> UploadBatch:
-    """Process one upload. FULL reconciliation is limited to an explicit scope.
-
-    A full report with rejected rows does not reconcile missing incidents, avoiding
-    accidental disappearance of records because of malformed input.
-    """
+def process_upload(*, batch, file_obj, field_map=None, snapshot_scope=""):
     mapping = validate_field_map(field_map)
     batch.status = UploadStatus.PROCESSING
     batch.started_at = timezone.now()
     batch.snapshot_scope = snapshot_scope.strip()
     batch.save(update_fields=("status", "started_at", "snapshot_scope"))
-
     try:
         headers, source_rows = read_tabular_file(file_obj, batch.original_filename)
-        missing_headers = sorted({mapping["incident_number"]} - set(headers))
-        if missing_headers:
+        if mapping["incident_number"] not in headers:
             raise ImportExecutionError(
-                "Required source column not found: " + ", ".join(missing_headers)
+                f"Required source column not found: {mapping['incident_number']}"
             )
         if batch.upload_type == UploadType.FULL and not snapshot_scope.strip():
             raise ImportExecutionError("Full report uploads require an explicit snapshot_scope.")
 
-        batch.file_sha256 = sha256_file(file_obj)
+        batch.file_sha256 = _file_sha256(file_obj)
         batch.metadata = {
             **(batch.metadata or {}),
             "source_headers": headers,
             "field_map": mapping,
         }
-
-        counters = {"inserted": 0, "updated": 0, "unchanged": 0, "rejected": 0}
-        seen_incidents: set[str] = set()
-        processed_at = timezone.now()
+        counts = {"inserted": 0, "updated": 0, "unchanged": 0, "rejected": 0}
+        seen = set()
+        imported_at = timezone.now()
 
         with transaction.atomic():
             for source in source_rows:
                 row_number = int(source["__row_number__"])
+                incident = str(source.get(mapping["incident_number"]) or "").strip()
+                ticket = None
+                row_status = RowStatus.REJECTED
+                error = ""
                 audit_source = {
                     key: (value.isoformat() if hasattr(value, "isoformat") else value)
                     for key, value in source.items()
                 }
-                incident_number = str(source.get(mapping["incident_number"]) or "").strip()
-                status = RowStatus.REJECTED
-                error_message = ""
-                ticket = None
-
                 try:
                     values = validate_row(source, mapping)
-                    incident_number = values["incident_number"]
-                    if incident_number in seen_incidents:
-                        raise ValueError(f"Duplicate incident number '{incident_number}' in this file.")
-                    seen_incidents.add(incident_number)
-
-                    ticket = Ticket.objects.filter(incident_number=incident_number).first()
+                    incident = values["incident_number"]
+                    if incident in seen:
+                        raise ValueError(f"Duplicate incident number '{incident}' in this file.")
+                    seen.add(incident)
+                    ticket = Ticket.objects.filter(incident_number=incident).first()
                     if ticket is None:
-                        ticket = Ticket.objects.create(incident_number=incident_number, **values)
-                        status = RowStatus.INSERTED
-                        counters["inserted"] += 1
-                    elif _same_values(ticket, values):
-                        status = RowStatus.UNCHANGED
-                        counters["unchanged"] += 1
+                        ticket = Ticket.objects.create(**values)
+                        row_status = RowStatus.INSERTED
+                        counts["inserted"] += 1
+                    elif all(getattr(ticket, name) == values[name] for name in UPDATE_FIELDS):
+                        row_status = RowStatus.UNCHANGED
+                        counts["unchanged"] += 1
                     else:
-                        for field in IMPORTABLE_FIELDS:
-                            setattr(ticket, field, values[field])
+                        for name in UPDATE_FIELDS:
+                            setattr(ticket, name, values[name])
                         ticket.missing_from_latest_full_snapshot = False
                         ticket.save()
-                        status = RowStatus.UPDATED
-                        counters["updated"] += 1
-
+                        row_status = RowStatus.UPDATED
+                        counts["updated"] += 1
                     if batch.upload_type == UploadType.FULL:
-                        ticket.last_seen_in_full_snapshot_at = processed_at
+                        ticket.last_seen_in_full_snapshot_at = imported_at
                         ticket.missing_from_latest_full_snapshot = False
                         ticket.save(update_fields=(
                             "last_seen_in_full_snapshot_at",
-                            "missing_from_latest_full_snapshot",
-                            "updated_on",
+                            "missing_from_latest_full_snapshot", "updated_on",
                         ))
                 except (ValueError, TypeError) as exc:
-                    error_message = str(exc)
-                    counters["rejected"] += 1
-
+                    error = str(exc)
+                    counts["rejected"] += 1
                 ImportRow.objects.create(
-                    batch=batch,
-                    row_number=row_number,
-                    incident_number=incident_number[:100],
-                    status=status,
-                    error_message=error_message,
-                    source_data=audit_source,
-                    ticket=ticket,
-                    processed_at=processed_at,
+                    batch=batch, row_number=row_number,
+                    incident_number=incident[:100], status=row_status,
+                    error_message=error, source_data=audit_source,
+                    ticket=ticket, processed_at=imported_at,
                 )
 
-            # Do not infer missing records from a partial/invalid full report.
-            if batch.upload_type == UploadType.FULL and counters["rejected"] == 0:
-                existing = Ticket.objects.exclude(last_seen_in_full_snapshot_at=processed_at)
-                # Scope is currently a required audit boundary, not an assumed plant filter.
-                # Until the source report defines a stable scope expression, never mark
-                # enterprise-wide records missing.
-                if snapshot_scope == "*":
-                    existing.update(missing_from_latest_full_snapshot=True)
+            # Missing-record inference is deliberately disabled for plant/other scopes
+            # until their exact field semantics are approved. '*' explicitly denotes
+            # an enterprise-wide complete report.
+            if batch.upload_type == UploadType.FULL and counts["rejected"] == 0 and snapshot_scope.strip() == "*":
+                Ticket.objects.exclude(last_seen_in_full_snapshot_at=imported_at).update(
+                    missing_from_latest_full_snapshot=True
+                )
 
             batch.total_rows = len(source_rows)
-            batch.inserted_rows = counters["inserted"]
-            batch.updated_rows = counters["updated"]
-            batch.unchanged_rows = counters["unchanged"]
-            batch.rejected_rows = counters["rejected"]
+            batch.inserted_rows = counts["inserted"]
+            batch.updated_rows = counts["updated"]
+            batch.unchanged_rows = counts["unchanged"]
+            batch.rejected_rows = counts["rejected"]
             batch.status = (
-                UploadStatus.COMPLETED_WITH_ERRORS
-                if counters["rejected"]
+                UploadStatus.COMPLETED_WITH_ERRORS if counts["rejected"]
                 else UploadStatus.COMPLETED
             )
             batch.completed_at = timezone.now()
             batch.error_summary = (
-                f"{counters['rejected']} row(s) were rejected."
-                if counters["rejected"]
-                else ""
+                f"{counts['rejected']} row(s) were rejected." if counts["rejected"] else ""
             )
             batch.save()
-
     except Exception as exc:
         batch.status = UploadStatus.FAILED
         batch.completed_at = timezone.now()
@@ -184,5 +142,4 @@ def process_upload(
         if isinstance(exc, ImportExecutionError):
             raise
         raise ImportExecutionError(str(exc)) from exc
-
     return batch
