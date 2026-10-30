@@ -26,6 +26,38 @@ DEFAULT_FIELD_MAP = {
 }
 ALLOWED_FIELDS = set(DEFAULT_FIELD_MAP)
 
+# Older generic exports remain supported when no explicit field_map is supplied.
+DEFAULT_HEADER_ALIASES = {
+    "incident_number": ("Incident Number", "Incident No", "Ticket ID"),
+    "title": ("Title", "Short Description"),
+    "status": ("Status",),
+    "category": ("Category",),
+    "subcategory": ("Subcategory", "Sub Category"),
+    "plant_code": ("Plant", "Plant Code"),
+    "channel": ("Channel",),
+    "assignee": ("Assignee", "Assigned To"),
+    "created_at_source": ("Created Date", "Created At"),
+    "source_updated_at": ("Updated At", "Last Updated"),
+    "resolved_at": ("Resolved Date", "Resolution Date"),
+    "resolution_days": ("Resolution Days",),
+    "due_at": ("Due Date",),
+}
+
+
+def resolve_field_map(field_map, headers, *, explicit=False):
+    """Resolve legacy header aliases without overriding explicit user mappings."""
+    mapping = dict(field_map)
+    available = {header.casefold(): header for header in headers if header}
+    for field, default_header in DEFAULT_FIELD_MAP.items():
+        if explicit or default_header.casefold() in available:
+            continue
+        for alias in DEFAULT_HEADER_ALIASES.get(field, ()):
+            if alias.casefold() in available:
+                mapping[field] = available[alias.casefold()]
+                break
+    return mapping
+
+
 
 def validate_field_map(field_map=None):
     mapping = dict(DEFAULT_FIELD_MAP)
