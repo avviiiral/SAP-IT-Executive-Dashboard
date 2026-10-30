@@ -8,7 +8,7 @@ from tickets.models import Ticket
 from uploads.models import ImportRow, RowStatus, UploadStatus, UploadType
 
 from .file_reader import read_tabular_file
-from .validator import validate_field_map, validate_row
+from .validator import resolve_field_map, validate_field_map, validate_row
 
 UPDATE_FIELDS = (
     "title", "status", "source_status", "category", "source_category",
@@ -42,6 +42,7 @@ def process_upload(*, batch, file_obj, field_map=None, snapshot_scope=""):
     try:
         mapping = validate_field_map(field_map)
         headers, source_rows = read_tabular_file(file_obj, batch.original_filename)
+        mapping = resolve_field_map(mapping, headers, explicit=field_map is not None)
         if mapping["incident_number"] not in headers:
             raise ImportExecutionError(
                 f"Required source column not found: {mapping['incident_number']}"
