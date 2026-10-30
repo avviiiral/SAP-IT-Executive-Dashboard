@@ -1,9 +1,11 @@
-@"
 # Python
 __pycache__/
 *.py[cod]
 venv/
+.venv/
 .env
+.env.*
+!.env.example
 
 # Django
 db.sqlite3
@@ -19,13 +21,18 @@ dist/
 .vscode/
 .idea/
 
-# Uploaded data
-uploads/
+# Uploaded data and business exports
+/uploads/
+data/
 *.xlsx
 *.xls
 *.csv
+!sample_data/
+!sample_data/*.csv
+
+# Logs
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
-"@ | Set-Content .gitignore
