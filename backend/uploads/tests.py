@@ -80,13 +80,13 @@ class TicketImportServiceTests(TestCase):
         batch = self.make_batch()
         csv_data = (
             "ORGID,COMID,PCODE,INCNO,CHANL,TITLE,STATUS,PRIORITY,CTGRY,"
-            "SUB_CTGRY,REQ_BY,ASN_TO,DUE,createdAt,updatedAt,Cl-Weeks,Cr-Week\\n"
+            "SUB_CTGRY,REQ_BY,ASN_TO,DUE,createdAt,updatedAt,Cl-Weeks,Cr-Week\n"
             "BAGL,BGOI,3000,INCD100060,WebApp,Approval issue,Resolved,Low,"
             "SAP,SAP-PROJECT,sap@example.com,agent@example.com,GO Live Done,"
-            "2025-06-07T00:00:00,2026-09-07T00:00:00,37,23\\n"
+            "2025-06-07T00:00:00,2026-09-07T00:00:00,37,23\n"
             "BAGL,BGOI,3000,INCD100061,WebApp,Pending issue,In Progress,Low,"
             "SAP,SAP-PROJECT,sap@example.com,agent@example.com,On Hold,"
-            "2026-10-01T00:00:00,2026-10-02T00:00:00,1,40\\n"
+            "2026-10-01T00:00:00,2026-10-02T00:00:00,1,40\n"
         )
         process_upload(batch=batch, file_obj=self.make_csv(csv_data))
 
