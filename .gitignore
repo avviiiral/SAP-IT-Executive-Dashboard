@@ -22,7 +22,7 @@ dist/
 .idea/
 
 # Uploaded data and business exports
-uploads/
+/uploads/
 data/
 *.xlsx
 *.xls
