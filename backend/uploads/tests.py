@@ -1,5 +1,6 @@
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
+from rest_framework.test import APIClient
 
 from tickets.models import Ticket
 from .models import ImportRow, RowStatus, UploadBatch, UploadStatus, UploadType
@@ -74,3 +75,9 @@ class TicketImportServiceTests(TestCase):
             field_map={"incident_number": "Ticket ID", "title": "Summary"},
         )
         self.assertTrue(Ticket.objects.filter(incident_number="INC-3004", title="Password reset").exists())
+
+
+class UploadApiTests(TestCase):
+    def test_upload_endpoint_requires_staff_authentication(self):
+        response = APIClient().get("/api/uploads/")
+        self.assertEqual(response.status_code, 403)

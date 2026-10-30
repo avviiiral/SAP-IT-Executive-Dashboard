@@ -31,6 +31,11 @@ class UploadCreateSerializer(serializers.Serializer):
     def validate_field_map(self, value):
         if not isinstance(value, dict):
             raise serializers.ValidationError("field_map must be a JSON object.")
+        from .services.validator import validate_field_map
+        try:
+            validate_field_map(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
         return value
 
     def validate(self, attrs):
