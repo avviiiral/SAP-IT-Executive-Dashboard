@@ -1,5 +1,13 @@
-import {bootstrapApplication} from '@angular/platform-browser';
-import {provideHttpClient} from '@angular/common/http';
-import {provideEcharts} from 'ngx-echarts';
-import {AppComponent} from './app/app.component';
-bootstrapApplication(AppComponent,{providers:[provideHttpClient(),provideEcharts()]}).catch((error:unknown)=>console.error(error));
+import { provideHttpClient } from '@angular/common/http';
+import { bootstrapApplication } from '@angular/platform-browser';
+import { provideEchartsCore } from 'ngx-echarts';
+import { AppComponent } from './app/app.component';
+
+bootstrapApplication(AppComponent, {
+  providers: [
+    provideHttpClient(),
+    provideEchartsCore({
+      echarts: () => import('echarts'),
+    }),
+  ],
+}).catch((error: unknown) => console.error(error));
